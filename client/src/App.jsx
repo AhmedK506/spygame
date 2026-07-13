@@ -423,7 +423,14 @@ export default function App() {
 
   // ----------------------------------------------------------------- LOBBY
   const canStart = room.players.length >= room.minPlayers;
-  const spyOptions = room.players.length >= 6 ? [1, 2] : [1];
+
+  // Mirror the server's maxSpies ladder: 1 spy up to 5 players, 2 at 6, 3 at 7+.
+  const maxSpiesFor = (n) => (n >= 7 ? 3 : n >= 6 ? 2 : 1);
+  const allowedSpies = maxSpiesFor(room.players.length);
+  const spyOptions = Array.from({ length: allowedSpies }, (_, i) => i + 1);
+  const nextSpyUnlock = allowedSpies < 3
+    ? (allowedSpies === 1 ? 6 : 7)
+    : null;
 
   return (
     <div className="wrap">
@@ -486,8 +493,10 @@ export default function App() {
                 </option>
               ))}
             </select>
-            {room.players.length < 6 && (
-              <p className="muted">2 spies unlocks at 6 players.</p>
+            {nextSpyUnlock && (
+              <p className="muted">
+                {allowedSpies + 1} spies unlocks at {nextSpyUnlock} players.
+              </p>
             )}
 
             <button className="primary" disabled={!canStart} onClick={start}>

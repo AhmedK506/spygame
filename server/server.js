@@ -6,7 +6,7 @@ const WORDS = require("./words");
 
 const PORT = process.env.PORT || 3001;
 const MIN_PLAYERS = 3;
-const MAX_PLAYERS = 6;
+const MAX_PLAYERS = 8;
 const CATEGORIES = Object.keys(WORDS);
 
 // Length of the pre-game countdown. Roles are dealt only when this expires.
@@ -60,7 +60,12 @@ const shuffle = (arr) => {
   return a;
 };
 
-const maxSpies = (n) => (n >= 6 ? 2 : 1);
+// How many spies the lobby is allowed to pick, by player count. Roughly a
+// quarter of the table: too many spies and they can just agree with each other.
+//   3-5 players -> 1 spy
+//   6 players   -> 2 spies
+//   7-8 players -> 3 spies
+const maxSpies = (n) => (n >= 7 ? 3 : n >= 6 ? 2 : 1);
 
 // What every client is allowed to know. Note: never includes `word` or `spyPids`.
 function publicRoom(room) {
@@ -274,7 +279,7 @@ io.on("connection", (socket) => {
 
     if (category && CATEGORIES.includes(category)) room.category = category;
     if ([120, 180, 300, 480].includes(durationSec)) room.durationSec = durationSec;
-    if ([1, 2].includes(spyCount)) room.spyCount = spyCount;
+    if ([1, 2, 3].includes(spyCount)) room.spyCount = spyCount;
 
     // Keep spy count legal if players left.
     room.spyCount = Math.min(room.spyCount, maxSpies(room.players.length));

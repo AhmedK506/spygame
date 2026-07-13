@@ -11,6 +11,12 @@ module.exports = {
     "harmonica", "binoculars", "hourglass", "toolbox", "raincoat", "anchor",
     "piano", "suitcase", "flashlight", "birdcage", "dartboard", "kite",
     "megaphone", "thermometer", "wheelchair", "windmill",
+    // + 20 more
+    "treadmill", "juggling pins", "snow globe", "accordion",
+    "pogo stick", "cash register", "grandfather clock", "surfboard",
+    "chainsaw", "record player", "fishing rod", "revolving door",
+    "metal detector", "parachute", "bear trap", "disco ball",
+    "wind chime", "crystal ball", "straitjacket", "hot air balloon",
   ],
   places: [
     "airport", "casino", "hospital", "submarine", "movie theater", "beach",
@@ -22,6 +28,12 @@ module.exports = {
     "military base", "car wash", "haunted house", "train station", "prison",
     "swimming pool", "castle", "laboratory", "circus tent", "bakery",
     "nightclub", "airplane cabin",
+    // + 20 more
+    "volcano", "desert island", "monastery", "morgue",
+    "escape room", "planetarium", "sewer", "boxing ring",
+    "wax museum", "nuclear bunker", "petting zoo", "opera house",
+    "junkyard", "ice rink", "cave", "food truck",
+    "barber shop", "waterfall", "attic", "construction site",
   ],
   jobs: [
     "surgeon", "barista", "pilot", "plumber", "firefighter", "chef", "lawyer",
@@ -32,6 +44,12 @@ module.exports = {
     "stunt double", "hairdresser", "mail carrier", "auctioneer", "clown",
     "sommelier", "detective", "welder", "nanny", "cartographer", "diver",
     "magician", "butcher", "architect",
+    // + 20 more
+    "mortician", "air traffic controller", "ghostwriter", "puppeteer",
+    "sniper", "florist", "bounty hunter", "meteorologist",
+    "taxidermist", "priest", "crossing guard", "zookeeper",
+    "blacksmith", "therapist", "food critic", "storm chaser",
+    "cowboy", "professor", "bartender", "dog walker",
   ],
   animals: [
     "penguin", "octopus", "kangaroo", "hedgehog", "flamingo", "sloth", "camel",
@@ -40,6 +58,12 @@ module.exports = {
     "koala", "crocodile", "hummingbird", "bat", "hyena", "swan", "lobster",
     "meerkat", "panda", "eagle", "snail", "wolf", "seahorse", "rhinoceros",
     "owl", "ferret", "toucan", "starfish", "llama", "beaver",
+    // + 20 more
+    "platypus", "tarantula", "narwhal", "sea turtle",
+    "cheetah", "goat", "pelican", "chimpanzee",
+    "iguana", "hippopotamus", "skunk", "shark",
+    "praying mantis", "ostrich", "bison", "lemur",
+    "cobra", "woodpecker", "orca", "firefly",
   ],
   food: [
     "sushi", "pancakes", "lasagna", "popcorn", "ramen", "cheesecake", "tacos",
@@ -49,5 +73,11 @@ module.exports = {
     "cotton candy", "dumplings", "bacon", "gelato", "pizza", "avocado",
     "meatloaf", "pho", "bagel", "paella", "smoothie", "garlic bread",
     "s'mores", "risotto", "falafel", "toast",
+    // + 20 more
+    "escargot", "peanut butter", "caviar", "shawarma",
+    "corn dog", "tiramisu", "cereal", "biryani",
+    "nachos", "sardines", "macarons", "pickles",
+    "beef jerky", "churros", "sauerkraut", "lobster roll",
+    "wonton soup", "banana bread", "deviled eggs", "chili",
   ],
 };
