@@ -9,6 +9,9 @@ const MIN_PLAYERS = 3;
 const MAX_PLAYERS = 6;
 const CATEGORIES = Object.keys(WORDS);
 
+// Length of the pre-game countdown. Roles are dealt only when this expires.
+const COUNTDOWN_MS = 5000;
+
 // How long an empty room survives before it's cleaned up. Generous on purpose:
 // a host can make a lobby, lock their phone, and go round people up.
 const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000; // 30 min
@@ -95,6 +98,40 @@ function sendRole(room, player) {
     // trivially defeated by opening DevTools.
     word: isSpy ? null : room.word,
   });
+}
+
+// Fires when the pre-game countdown expires. This is the moment roles exist —
+// deliberately not at game:start, so a cancelled countdown reveals nothing.
+function beginRound(room) {
+  if (room.phase !== "countdown") return;
+
+  // Players may have dropped during the countdown. Re-check it's still legal.
+  if (room.players.length < MIN_PLAYERS || room.spyCount >= room.players.length) {
+    room.phase = "lobby";
+    room.endsAt = null;
+    io.to(room.code).emit("game:startCancelled");
+    sync(room);
+    return;
+  }
+
+  const pool = WORDS[room.category];
+  room.word = pool[Math.floor(Math.random() * pool.length)];
+  room.spyPids = new Set(shuffle(room.players).slice(0, room.spyCount).map((p) => p.pid));
+  room.votes = {};
+  room.phase = "playing";
+  room.endsAt = Date.now() + room.durationSec * 1000;
+
+  for (const p of room.players) sendRole(room, p);
+  sync(room);
+
+  // When the discussion clock runs out, move to voting (60s to lock in).
+  clearTimeout(room.timer);
+  room.timer = setTimeout(() => {
+    room.phase = "voting";
+    room.endsAt = Date.now() + 60_000;
+    sync(room);
+    room.timer = setTimeout(() => endRound(room, "timeout"), 60_000);
+  }, room.durationSec * 1000);
 }
 
 function endRound(room, reason) {
@@ -244,7 +281,7 @@ io.on("connection", (socket) => {
     sync(room);
   });
 
-  // ---- start ----
+  // ---- start: opens a 5s countdown the host can still cancel ----
   socket.on("game:start", (_payload, cb) => {
     const room = rooms[socket.data.code];
     if (!room || room.hostPid !== socket.data.pid) return;
@@ -256,25 +293,30 @@ io.on("connection", (socket) => {
       return cb?.({ ok: false, error: "Too many spies for this player count." });
     }
 
-    const pool = WORDS[room.category];
-    room.word = pool[Math.floor(Math.random() * pool.length)];
-    room.spyPids = new Set(shuffle(room.players).slice(0, room.spyCount).map((p) => p.pid));
-    room.votes = {};
-    room.phase = "playing";
-    room.endsAt = Date.now() + room.durationSec * 1000;
-
-    for (const p of room.players) sendRole(room, p);
+    // Note: no word, no spies assigned yet. Nothing secret exists until the
+    // countdown actually finishes, so a cancel can't leak anything.
+    room.phase = "countdown";
+    room.endsAt = Date.now() + COUNTDOWN_MS;
     sync(room);
 
-    // When the discussion clock runs out, move to voting (60s to lock in).
-    room.timer = setTimeout(() => {
-      room.phase = "voting";
-      room.endsAt = Date.now() + 60_000;
-      sync(room);
-      room.timer = setTimeout(() => endRound(room, "timeout"), 60_000);
-    }, room.durationSec * 1000);
+    clearTimeout(room.timer);
+    room.timer = setTimeout(() => beginRound(room), COUNTDOWN_MS);
 
     cb?.({ ok: true });
+  });
+
+  // ---- host aborts the countdown ----
+  socket.on("game:cancelStart", () => {
+    const room = rooms[socket.data.code];
+    if (!room || room.hostPid !== socket.data.pid) return;
+    if (room.phase !== "countdown") return;
+
+    clearTimeout(room.timer);
+    room.timer = null;
+    room.phase = "lobby";
+    room.endsAt = null;
+    io.to(room.code).emit("game:startCancelled");
+    sync(room);
   });
 
   // ---- host can cut discussion short ----

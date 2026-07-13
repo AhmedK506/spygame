@@ -176,6 +176,43 @@ button.ghost { background: transparent; }
 }
 .clock.small { font-size: 32px; text-align: center; }
 
+/* Final 10 seconds — pulse red once per second, in step with the beeps. */
+.clock.urgent {
+  color: var(--danger);
+  animation: flash 1s steps(1, end) infinite;
+}
+@keyframes flash {
+  0%, 49% { opacity: 1; transform: scale(1.06); }
+  50%, 100% { opacity: 0.35; transform: scale(1); }
+}
+
+/* Pre-game countdown. The `key` on the element remounts it each second, which
+   restarts this animation — that's what makes every number pop. */
+.countdown {
+  font-size: 92px;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  animation: pop 0.5s ease-out;
+}
+@keyframes pop {
+  0% { transform: scale(1.5); opacity: 0; }
+  40% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+button.cancel {
+  border-color: var(--danger);
+  color: var(--danger);
+  margin-top: 24px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clock.urgent, .countdown { animation: none; }
+  .clock.urgent { opacity: 1; }
+}
+
 .cover {
   margin-top: 24px;
   padding: 44px 20px;

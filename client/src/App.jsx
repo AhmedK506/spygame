@@ -28,6 +28,40 @@ const mmss = (s) =>
   `${Math.floor(s / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
 const titled = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
+// --- sound ---------------------------------------------------------------
+// Synthesised with WebAudio so there are no audio files to host or preload.
+// Browsers block audio until the user interacts with the page; by the time a
+// countdown runs, everyone has clicked something, so the context will unlock.
+let audioCtx = null;
+function beep(freq = 660, ms = 120, volume = 0.25) {
+  try {
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      audioCtx = new AC();
+    }
+    if (audioCtx.state === "suspended") audioCtx.resume();
+
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+
+    // Ramp the gain instead of starting/stopping abruptly — a hard cut
+    // produces an audible click.
+    const t = audioCtx.currentTime;
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(volume, t + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + ms / 1000);
+
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + ms / 1000 + 0.02);
+  } catch {
+    // Audio is a nicety. If it fails, the game still works silently.
+  }
+}
+
 export default function App() {
   const [room, setRoom] = useState(null);
   const [me, setMe] = useState(null);       // { role, word, category }
@@ -55,6 +89,10 @@ export default function App() {
       setMe(null);
       setReveal(null);
       setRevealed(false);
+    });
+    socket.on("game:startCancelled", () => {
+      setError("The host cancelled the start.");
+      setTimeout(() => setError(""), 3000);
     });
 
     // On reconnect (server restart, wifi blip, refresh), silently rejoin.
@@ -89,6 +127,7 @@ export default function App() {
       socket.off("game:role");
       socket.off("game:reveal");
       socket.off("game:cleared");
+      socket.off("game:startCancelled");
       socket.off("connect");
       document.removeEventListener("visibilitychange", onWake);
       window.removeEventListener("online", onWake);
@@ -105,14 +144,45 @@ export default function App() {
   const secondsLeft = room?.endsAt ? Math.ceil((room.endsAt - now) / 1000) : 0;
   const isHost = room && room.hostPid === PID;
 
+  // Beeps. The ticker fires 4x/sec, so we track the last second we sounded on
+  // and only beep when the integer actually changes — otherwise every tone
+  // would play four times.
+  const lastBeep = useRef(null);
+  useEffect(() => {
+    const phase = room?.phase;
+    if (phase !== "countdown" && phase !== "playing") {
+      lastBeep.current = null;
+      return;
+    }
+
+    const key = `${phase}:${secondsLeft}`;
+    if (lastBeep.current === key) return;
+    lastBeep.current = key;
+
+    if (phase === "countdown") {
+      if (secondsLeft > 0 && secondsLeft <= 5) beep(660, 120);   // tick
+      if (secondsLeft === 0) beep(990, 300, 0.3);                // GO
+    } else if (phase === "playing") {
+      // Final ten seconds: one blip a second, then a low tone at zero.
+      if (secondsLeft > 0 && secondsLeft <= 10) beep(880, 90, 0.2);
+      if (secondsLeft === 0) beep(300, 500, 0.3);
+    }
+  }, [room?.phase, secondsLeft]);
+
   const saveName = (v) => {
     setName(v);
     localStorage.setItem("spy_name", v);
   };
 
+  // Browsers only allow audio to start from a user gesture. Non-hosts never
+  // click anything once the countdown begins, so we unlock the context on the
+  // create/join tap — the one press every player is guaranteed to make.
+  const unlockAudio = () => beep(0, 1, 0);
+
   const create = () => {
     if (!name.trim()) return setError("Enter a name first.");
     setError("");
+    unlockAudio();
     socket.emit("room:create", { name: name.trim(), pid: PID }, (res) => {
       if (res.ok) setRoom(res.room);
       else setError(res.error);
@@ -123,6 +193,7 @@ export default function App() {
     if (!name.trim()) return setError("Enter a name first.");
     if (!code.trim()) return setError("Enter a room code.");
     setError("");
+    unlockAudio();
     socket.emit(
       "room:join",
       { code: code.trim(), name: name.trim(), pid: PID },
@@ -281,12 +352,39 @@ export default function App() {
     );
   }
 
-  // --------------------------------------------------------------- PLAYING
-  if (room.phase === "playing" && me) {
+  // --------------------------------------------------------------- COUNTDOWN
+  if (room.phase === "countdown") {
+    // secondsLeft is derived from the server's endsAt, so every device shows
+    // the same number — nobody's countdown is ahead of anyone else's.
+    const n = Math.max(0, Math.min(5, secondsLeft));
     return (
       <div className="wrap">
         <div className="card center">
-          <div className="clock">{mmss(secondsLeft)}</div>
+          <p className="sub">Game starting</p>
+          <div key={n} className="countdown">{n === 0 ? "GO" : n}</div>
+
+          {isHost ? (
+            <button
+              className="ghost cancel"
+              onClick={() => socket.emit("game:cancelStart")}
+            >
+              Cancel
+            </button>
+          ) : (
+            <p className="muted">Get ready…</p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // --------------------------------------------------------------- PLAYING
+  if (room.phase === "playing" && me) {
+    const urgent = secondsLeft <= 10 && secondsLeft > 0;
+    return (
+      <div className="wrap">
+        <div className="card center">
+          <div className={`clock ${urgent ? "urgent" : ""}`}>{mmss(secondsLeft)}</div>
           <p className="sub">Category · {titled(me.category)}</p>
 
           {!revealed ? (
