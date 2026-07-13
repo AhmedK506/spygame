@@ -9,6 +9,14 @@ const MIN_PLAYERS = 3;
 const MAX_PLAYERS = 6;
 const CATEGORIES = Object.keys(WORDS);
 
+// How long an empty room survives before it's cleaned up. Generous on purpose:
+// a host can make a lobby, lock their phone, and go round people up.
+const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000; // 30 min
+
+// How long a disconnected lobby player keeps their seat before someone new can
+// take it. Short blips (tab switch, wifi) are well under this.
+const AWAY_EVICT_MS = 60 * 1000; // 1 min
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
@@ -142,8 +150,15 @@ io.on("connection", (socket) => {
       votes: {},
       timer: null,
       players: [
-        { pid, name: (name || "Host").slice(0, 16), socketId: socket.id, connected: true },
+        {
+          pid,
+          name: (name || "Host").slice(0, 16),
+          socketId: socket.id,
+          connected: true,
+          awaySince: null,
+        },
       ],
+      reaper: null,
     };
     rooms[code] = room;
     socket.join(code);
@@ -159,14 +174,28 @@ io.on("connection", (socket) => {
     if (!room) return cb?.({ ok: false, error: "Room not found." });
     if (!pid) return cb?.({ ok: false, error: "Missing player id." });
 
+    // Someone's back — call off the cleanup.
+    clearTimeout(room.reaper);
+    room.reaper = null;
+
     const existing = room.players.find((p) => p.pid === pid);
 
     if (existing) {
       // Reconnect: same person, new socket.
       existing.socketId = socket.id;
       existing.connected = true;
+      existing.awaySince = null;
       if (name) existing.name = name.slice(0, 16);
     } else {
+      // In the lobby, drop anyone who's been gone a while before checking if
+      // there's space. A brief blip keeps your seat; actually leaving frees it.
+      if (room.phase === "lobby") {
+        const cutoff = Date.now() - AWAY_EVICT_MS;
+        room.players = room.players.filter(
+          (p) => p.connected || !p.awaySince || p.awaySince > cutoff
+        );
+      }
+
       if (room.phase !== "lobby") {
         return cb?.({ ok: false, error: "That game has already started." });
       }
@@ -178,8 +207,18 @@ io.on("connection", (socket) => {
         name: (name || "Player").slice(0, 16),
         socketId: socket.id,
         connected: true,
+        awaySince: null,
       });
     }
+
+    // If the host is gone and a live player is here, hand over the crown.
+    const host = room.players.find((p) => p.pid === room.hostPid);
+    if (!host || !host.connected) {
+      const heir = room.players.find((p) => p.connected);
+      if (heir) room.hostPid = heir.pid;
+    }
+
+    room.spyCount = Math.min(room.spyCount, maxSpies(room.players.length));
 
     socket.join(code);
     socket.data.pid = pid;
@@ -294,27 +333,37 @@ io.on("connection", (socket) => {
     const player = room.players.find((p) => p.pid === socket.data.pid);
     if (!player) return;
 
+    // Mark them away, but keep their seat. A dropped socket is usually a
+    // backgrounded tab, a sleeping phone, or an idle-timed-out websocket —
+    // not someone actually leaving. The client auto-rejoins on reconnect.
     player.connected = false;
     player.socketId = null;
+    player.awaySince = Date.now();
 
-    if (room.phase === "lobby") {
-      // In the lobby, leaving means leaving. Mid-round we keep the seat warm
-      // so a refresh doesn't wipe someone out of the game.
-      room.players = room.players.filter((p) => p.pid !== player.pid);
-    }
+    const anyoneLeft = room.players.some((p) => p.connected);
 
-    if (room.players.length === 0) {
+    if (!anyoneLeft) {
+      // Room is empty *for now*. Don't destroy it — the host may just have
+      // locked their phone while waiting for friends to join. Reap it later
+      // if nobody comes back.
       clearTimeout(room.timer);
-      delete rooms[room.code];
+      room.timer = null;
+      clearTimeout(room.reaper);
+      room.reaper = setTimeout(() => {
+        const r = rooms[room.code];
+        if (r && !r.players.some((p) => p.connected)) {
+          clearTimeout(r.timer);
+          delete rooms[r.code];
+        }
+      }, EMPTY_ROOM_TTL_MS);
       return;
     }
 
-    // Promote a new host if the old one vanished.
+    // Someone is still here. Promote a new host if the old one vanished.
     if (room.hostPid === player.pid) {
-      const heir = room.players.find((p) => p.connected) || room.players[0];
-      room.hostPid = heir.pid;
+      const heir = room.players.find((p) => p.connected);
+      if (heir) room.hostPid = heir.pid;
     }
-    room.spyCount = Math.min(room.spyCount, maxSpies(room.players.length));
     sync(room);
   });
 });

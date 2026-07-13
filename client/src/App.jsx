@@ -2,7 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 
 // Same origin. In dev, Vite proxies /socket.io to :3001 (see vite.config.js).
-const socket = io({ autoConnect: true });
+// reconnectionAttempts defaults to 5 — far too few. A phone that sleeps for ten
+// minutes must still find its way back into the lobby, so we retry forever.
+const socket = io({
+  autoConnect: true,
+  reconnection: true,
+  reconnectionAttempts: Infinity,
+  reconnectionDelay: 500,
+  reconnectionDelayMax: 3000,
+});
 
 // A persistent id that survives page refreshes. This is what lets someone
 // reload mid-round and get their word back instead of being kicked out.
@@ -52,8 +60,29 @@ export default function App() {
     // On reconnect (server restart, wifi blip, refresh), silently rejoin.
     socket.on("connect", () => {
       const r = roomRef.current;
-      if (r) socket.emit("room:join", { code: r.code, name, pid: PID }, () => {});
+      if (!r) return;
+      socket.emit("room:join", { code: r.code, name, pid: PID }, (res) => {
+        if (!res?.ok) {
+          // The room really is gone — almost always because the server
+          // restarted. Say so plainly instead of leaving a dead lobby on screen.
+          setRoom(null);
+          setMe(null);
+          setReveal(null);
+          setError("That lobby ended (the server restarted). Make a new one.");
+        }
+      });
     });
+
+    // A locked phone kills the websocket without the page ever knowing. When the
+    // tab comes back to the foreground, nudge it to reconnect immediately rather
+    // than waiting for a heartbeat to time out.
+    const onWake = () => {
+      if (document.visibilityState === "visible" && !socket.connected) {
+        socket.connect();
+      }
+    };
+    document.addEventListener("visibilitychange", onWake);
+    window.addEventListener("online", onWake);
 
     return () => {
       socket.off("room:update");
@@ -61,6 +90,8 @@ export default function App() {
       socket.off("game:reveal");
       socket.off("game:cleared");
       socket.off("connect");
+      document.removeEventListener("visibilitychange", onWake);
+      window.removeEventListener("online", onWake);
     };
   }, [name]);
 
